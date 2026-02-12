@@ -6,12 +6,12 @@ import { supabase } from '@/lib/supabase';
 
 // Use a dynamic import if needed, or check if this works directly in client component
 // For Next.js App Router, dynamic import is usually better for heavy client-side libraries
-import dynamic from 'next/dynamic';
+// import dynamic from 'next/dynamic';
 
-const IVSBroadcastClient = dynamic(
-    () => import('amazon-ivs-web-broadcast').then((mod) => mod.default),
-    { ssr: false }
-);
+// const IVSBroadcastClient = dynamic(
+//    () => import('amazon-ivs-web-broadcast').then((mod) => mod.default as any),
+//    { ssr: false }
+// );
 
 export default function StreamPage() {
     const canvasRef = useRef<HTMLCanvasElement>(null);
