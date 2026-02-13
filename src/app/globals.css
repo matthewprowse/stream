@@ -121,8 +121,14 @@
         @apply border-border outline-ring/50;
         @apply border-border outline-ring/50;
     }
+    html {
+        font-family: var(--font-geist-sans);
+    }
     body {
         @apply bg-background text-foreground;
-        @apply bg-background text-foreground;
+        font-family: var(--font-geist-sans);
+    }
+    code, pre {
+        font-family: var(--font-geist-mono);
     }
 }

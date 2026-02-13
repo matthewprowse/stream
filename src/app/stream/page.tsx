@@ -18,48 +18,11 @@ export default function StreamPage() {
     const [client, setClient] = useState<any>(null);
     const [isLive, setIsLive] = useState(false);
     const [permissionsGranted, setPermissionsGranted] = useState(false);
+    const [hasJoined, setHasJoined] = useState(false);
 
-    useEffect(() => {
-        const init = async () => {
-            try {
-                // Get stream first - this prompts permission
-                // We KEEP this stream to pass to the SDK
-                const stream = await navigator.mediaDevices.getUserMedia({
-                    video: true,
-                    audio: true,
-                });
-                
-                setPermissionsGranted(true);
-
-                const IVSBroadcastClientModule = await import('amazon-ivs-web-broadcast');
-                const clientInstance = IVSBroadcastClientModule.create({
-                    streamConfig: IVSBroadcastClientModule.BASIC_LANDSCAPE,
-                    ingestEndpoint: process.env.NEXT_PUBLIC_AWS_IVS_INGEST_ENDPOINT,
-                });
-
-                setClient(clientInstance);
-
-                // Attach preview to canvas
-                if (canvasRef.current) {
-                    clientInstance.attachPreview(canvasRef.current);
-                }
-
-                // Add devices using the stream we already have
-                await clientInstance.addVideoInputDevice(stream, 'camera1', { index: 0 });
-                await clientInstance.addAudioInputDevice(stream, 'mic1');
-
-            } catch (err) {
-                console.error('Error initializing stream:', err);
-            }
-        };
-
-        if (typeof window !== 'undefined') {
-            init();
-        }
-    }, []);
-
-    const startBroadcast = async () => {
-        if (!client) return;
+    const startBroadcast = async (clientInstance?: any) => {
+        const clientToUse = clientInstance || client;
+        if (!clientToUse) return;
 
         try {
             const streamKey = process.env.NEXT_PUBLIC_AWS_IVS_STREAM_KEY;
@@ -68,7 +31,7 @@ export default function StreamPage() {
                 return;
             }
 
-            await client.startBroadcast(streamKey);
+            await clientToUse.startBroadcast(streamKey);
             setIsLive(true);
 
             // Update Supabase
@@ -104,6 +67,102 @@ export default function StreamPage() {
         }
     };
 
+    useEffect(() => {
+        if (!hasJoined) return; // Don't initialize until user clicks Join
+
+        const init = async () => {
+            try {
+                // Check if we're in a secure context (HTTPS or localhost)
+                if (typeof window === 'undefined') {
+                    throw new Error('Window is not available');
+                }
+
+                // Check if getUserMedia is available
+                if (!navigator.mediaDevices) {
+                    throw new Error('MediaDevices API is not available. Please use HTTPS or a modern browser.');
+                }
+
+                if (!navigator.mediaDevices.getUserMedia) {
+                    throw new Error('getUserMedia is not supported. Please use HTTPS or a modern browser.');
+                }
+
+                // Get stream first - this prompts permission
+                // We KEEP this stream to pass to the SDK
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: true,
+                    audio: true,
+                });
+                
+                setPermissionsGranted(true);
+
+                const IVSBroadcastClientModule = await import('amazon-ivs-web-broadcast');
+                const clientInstance = IVSBroadcastClientModule.create({
+                    streamConfig: IVSBroadcastClientModule.BASIC_LANDSCAPE,
+                    ingestEndpoint: process.env.NEXT_PUBLIC_AWS_IVS_INGEST_ENDPOINT,
+                });
+
+                setClient(clientInstance);
+
+                // Attach preview to canvas
+                if (canvasRef.current) {
+                    // Get video track to determine natural aspect ratio
+                    const videoTrack = stream.getVideoTracks()[0];
+                    const settings = videoTrack.getSettings();
+                    const naturalWidth = settings.width || 1280;
+                    const naturalHeight = settings.height || 720;
+                    
+                    // Set canvas to match natural camera dimensions
+                    canvasRef.current.width = naturalWidth;
+                    canvasRef.current.height = naturalHeight;
+                    clientInstance.attachPreview(canvasRef.current);
+                }
+
+                // Add devices using the stream we already have
+                await clientInstance.addVideoInputDevice(stream, 'camera1', { index: 0 });
+                await clientInstance.addAudioInputDevice(stream, 'mic1');
+
+            } catch (err: any) {
+                console.error('Error initializing stream:', err);
+                const errorName = err?.name || '';
+                const errorMessage = err?.message || 'Unknown error';
+                
+                let userMessage = 'Unable to access camera. ';
+                
+                // Check for specific error types
+                if (errorName === 'NotAllowedError' || errorName === 'PermissionDeniedError') {
+                    userMessage = 'Camera permission was denied. Please allow camera access in your browser settings and try again.';
+                } else if (errorName === 'NotFoundError' || errorName === 'DevicesNotFoundError') {
+                    userMessage = 'No camera found. Please ensure a camera is connected and try again.';
+                } else if (errorName === 'NotReadableError' || errorName === 'TrackStartError') {
+                    userMessage = 'Camera is already in use by another application. Please close other apps using the camera and try again.';
+                } else if (!window.isSecureContext) {
+                    // Check if accessing via network IP
+                    const isNetworkIP = /^https?:\/\/(\d{1,3}\.){3}\d{1,3}/.test(window.location.href) || 
+                                       /^https?:\/\/[^/]+\.local/.test(window.location.href);
+                    if (isNetworkIP && window.location.protocol === 'http:') {
+                        userMessage = 'Camera access requires HTTPS when accessing via network IP. Please use HTTPS or access via localhost. For development, consider using ngrok or setting up HTTPS locally.';
+                    } else {
+                        userMessage = 'This page must be served over HTTPS (or localhost) to access the camera. Mobile browsers require HTTPS for camera access when accessing via network IP addresses.';
+                    }
+                } else if (!navigator.mediaDevices) {
+                    userMessage = 'Your browser does not support camera access. Please use a modern browser.';
+                } else {
+                    userMessage += 'Please check your browser permissions and try again.';
+                }
+                
+                alert(userMessage);
+            }
+        };
+
+        if (typeof window !== 'undefined') {
+            init();
+        }
+    }, [hasJoined]);
+
+    const handleJoin = () => {
+        setHasJoined(true);
+    };
+
     const stopBroadcast = async () => {
         if (!client) return;
         try {
@@ -125,40 +184,69 @@ export default function StreamPage() {
         }
     };
 
+    // Show join screen before camera
+    if (!hasJoined) {
+        return (
+            <div className="fixed inset-0 bg-white flex items-center justify-center">
+                <div className="flex flex-col items-center gap-6">
+                    <Button
+                        onClick={handleJoin}
+                        className="rounded-full"
+                    >
+                        Join Stream
+                    </Button>
+                </div>
+            </div>
+        );
+    }
+
     return (
-        <div className="flex flex-col items-center justify-center min-h-screen bg-black text-white p-4">
-            <h1 className="text-2xl font-bold mb-4">Mobile Streamer</h1>
-            
-            <div className="relative w-full max-w-md aspect-video bg-gray-900 rounded-lg overflow-hidden mb-6">
+        <div className="fixed inset-0 bg-white text-white overflow-hidden flex items-center justify-center p-0 md:p-4">
+            <div className="relative w-full h-full md:h-[calc(100vh-32px)] md:w-[calc((100vh-32px)*9/16)] md:max-w-full bg-black md:rounded-lg overflow-hidden">
                 <canvas
                     ref={canvasRef}
-                    className="w-full h-full object-cover"
+                    className="w-full h-full"
+                    style={{ 
+                        display: 'block', 
+                        width: '100%', 
+                        height: '100%', 
+                        objectFit: 'cover',
+                        objectPosition: 'center'
+                    }}
                 />
-                {isLive && (
-                    <div className="absolute top-2 right-2 bg-red-600 px-2 py-1 rounded text-xs font-bold uppercase animate-pulse">
-                        LIVE
+                
+                <div className="absolute top-0 left-0 w-full h-full pointer-events-none p-4 z-10">
+                    {/* Live indicator - top left */}
+                    {isLive && (
+                        <div className="absolute top-4 left-4 pointer-events-auto">
+                            <Button
+                                className="rounded-full"
+                            >
+                                Streaming Live
+                            </Button>
+                        </div>
+                    )}
+                    
+                    {/* Start/Stop Streaming button - right side */}
+                    <div className="absolute right-4 bottom-4 pointer-events-auto">
+                        {!isLive ? (
+                            <Button 
+                                onClick={() => startBroadcast()} 
+                                disabled={!client || !permissionsGranted}
+                                className="rounded-full"
+                            >
+                                Start Streaming
+                            </Button>
+                        ) : (
+                            <Button 
+                                onClick={stopBroadcast} 
+                                className="rounded-full"
+                            >
+                                Stop
+                            </Button>
+                        )}
                     </div>
-                )}
-            </div>
-
-            <div className="flex gap-4">
-                {!isLive ? (
-                    <Button 
-                        onClick={startBroadcast} 
-                        disabled={!client || !permissionsGranted}
-                        className="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-8 rounded-full text-lg w-full sm:w-auto"
-                    >
-                        Go Live
-                    </Button>
-                ) : (
-                    <Button 
-                        onClick={stopBroadcast} 
-                        variant="destructive"
-                        className="bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-8 rounded-full text-lg w-full sm:w-auto"
-                    >
-                        End Stream
-                    </Button>
-                )}
+                </div>
             </div>
         </div>
     );

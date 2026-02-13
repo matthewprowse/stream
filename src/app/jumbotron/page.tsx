@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import QRCode from 'qrcode';
-import Image from 'next/image';
 
 export default function JumbotronPage() {
     const videoRef = useRef<HTMLVideoElement>(null);
@@ -24,8 +23,8 @@ export default function JumbotronPage() {
                     width: 400,
                     margin: 2,
                     color: {
-                        dark: '#FFFFFF',
-                        light: '#00000000' // Transparent background
+                        dark: '#000000',
+                        light: '#FFFFFF'
                     }
                 });
                 setQrCodeUrl(url);
@@ -130,26 +129,32 @@ export default function JumbotronPage() {
                     playerRef.current.pause();
                 }
                 currentStreamIdRef.current = null;
-                // DO NOT default back to QR here immediately. 
-                // Wait for the new 'on_jumbotron' event to arrive to set the mode.
-                // However, if we just stop, the video will freeze.
-                // We should probably show waiting or QR as a fallback if no other stream takes over.
-                // But since "pushToJumbotron" sets the old one to live/offline BEFORE setting the new one to on_jumbotron,
-                // we might see this event first.
                 
-                // Let's check if there is ANY stream on jumbotron right now?
-                // Actually, for smoothness, maybe we just don't auto-switch to QR here.
-                // We let the new 'on_jumbotron' event handle the switch.
+                // Check if there's another stream taking over jumbotron
+                // If not, set waiting screen in database so dashboard knows
+                const checkForOtherStream = async () => {
+                    const { data } = await supabase
+                        .from('streams')
+                        .select('id, status')
+                        .eq('status', 'on_jumbotron')
+                        .maybeSingle();
+                    
+                    // Only set waiting if no other stream is on jumbotron
+                    if (!data) {
+                        const SYSTEM_ID = '00000000-0000-0000-0000-000000000000';
+                        await supabase
+                            .from('streams')
+                            .upsert({ 
+                                id: SYSTEM_ID, 
+                                status: 'on_jumbotron', 
+                                playback_url: 'internal:waiting',
+                                updated_at: new Date().toISOString()
+                            });
+                    }
+                };
                 
-                // But if the stream just ENDED (user stopped streaming), we should go to QR.
-                // The issue is distinguishing "switched" vs "ended".
-                
-                // For now, let's just NOT switch to QR here, but hide the video.
-                // If a new stream is coming, it will switch mode to 'video' in milliseconds.
-                // If no stream is coming (user stopped), we might want to go to QR.
-                
-                // Safer bet: Switch to 'waiting' briefly? Or just stay on black video?
-                // Let's try switching to 'waiting' as a neutral state.
+                // Small delay to allow new stream to be set if switching
+                setTimeout(checkForOtherStream, 100);
                 setViewMode('waiting'); 
             }
         };
@@ -161,36 +166,33 @@ export default function JumbotronPage() {
     }, []);
 
     return (
-        <div className="w-screen h-screen bg-black flex flex-col items-center justify-center overflow-hidden relative">
-             {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-            <video 
-                ref={videoRef} 
-                className={`w-full h-full object-contain transition-opacity duration-500 absolute top-0 left-0 ${viewMode === 'video' ? 'opacity-100' : 'opacity-0'}`}
-                playsInline 
-                autoPlay 
-                controls={false}
-            />
-            
-            {viewMode === 'qr' && qrCodeUrl && (
-                <div className="z-10 flex flex-col items-center">
-                    <h1 className="text-white text-4xl font-bold mb-8 tracking-wider">SCAN TO STREAM</h1>
-                    <div className="bg-white p-4 rounded-xl">
-                        <Image 
+        <div className="w-screen h-screen bg-white flex items-center justify-center overflow-hidden p-0 md:p-4">
+            <div className="relative w-full h-full md:h-[calc(100vh-32px)] md:w-[calc((100vh-32px)*9/16)] md:max-w-full bg-black md:rounded-lg overflow-hidden">
+                {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+                <video 
+                    ref={videoRef} 
+                    className={`w-full h-full object-cover transition-opacity duration-500 ${viewMode === 'video' ? 'opacity-100' : 'opacity-0'}`}
+                    playsInline 
+                    autoPlay 
+                    controls={false}
+                />
+                
+                {viewMode === 'qr' && qrCodeUrl && (
+                    <div className="absolute inset-0 z-10 flex items-center justify-center">
+                        <img 
                             src={qrCodeUrl} 
                             alt="Stream QR Code" 
-                            width={400} 
-                            height={400}
-                            className="rounded-lg"
+                            className="w-[400px] h-[400px]"
                         />
                     </div>
-                </div>
-            )}
+                )}
 
-            {viewMode === 'waiting' && (
-                <div className="z-10 flex flex-col items-center">
-                    <h1 className="text-white text-4xl font-bold tracking-wider animate-pulse">WAITING FOR STREAM...</h1>
-                </div>
-            )}
+                {viewMode === 'waiting' && (
+                    <div className="absolute inset-0 z-10 flex flex-col items-center justify-center">
+                        <h1 className="text-white text-2xl font-semibold animate-pulse">Waiting Screen</h1>
+                    </div>
+                )}
+            </div>
         </div>
     );
 }
