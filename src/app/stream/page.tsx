@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/lib/supabase';
 
+export const dynamic = 'force-dynamic';
+
 // Use a dynamic import if needed, or check if this works directly in client component
 // For Next.js App Router, dynamic import is usually better for heavy client-side libraries
 // import dynamic from 'next/dynamic';

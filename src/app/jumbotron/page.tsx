@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import QRCode from 'qrcode';
 
+export const dynamic = 'force-dynamic';
+
 export default function JumbotronPage() {
     const videoRef = useRef<HTMLVideoElement>(null);
     const playerRef = useRef<any>(null);
